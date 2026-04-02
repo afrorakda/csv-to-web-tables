@@ -41,12 +41,12 @@
 
         .input-area {
             width: 100%;
-            height: 120px;
+            height: 140px;
             padding: 15px;
             border: 2px solid var(--accent);
             border-radius: var(--radius);
             background: var(--input-bg);
-            font-size: 0.9rem;
+            font-size: 16px; /* iOS zoom prevention */
             color: var(--main) !important;
             box-sizing: border-box;
             outline: none;
@@ -67,12 +67,12 @@
 
         .toggle-btn {
             flex: 1;
-            padding: 10px;
+            padding: 12px;
             border: none;
             border-radius: 12px;
             background: transparent;
             color: #888;
-            font-weight: 700;
+            font-weight: 800;
             font-size: 0.85rem;
             cursor: pointer;
             transition: 0.2s;
@@ -81,7 +81,7 @@
         .toggle-btn.active {
             background: #fff;
             color: var(--main);
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
 
         .output-container {
@@ -91,13 +91,13 @@
 
         .output-area {
             width: 100%;
-            height: 200px;
+            height: 220px;
             padding: 15px;
             border: 2px solid var(--accent);
             border-radius: var(--radius);
             background: #fff;
-            font-family: 'Courier New', Courier, monospace;
-            font-size: 0.85rem;
+            font-family: 'SF Mono', 'Courier New', monospace;
+            font-size: 13px;
             color: var(--main) !important;
             box-sizing: border-box;
             outline: none;
@@ -106,17 +106,28 @@
             -webkit-appearance: none;
             -webkit-text-fill-color: var(--main) !important;
             opacity: 1 !important;
+            cursor: pointer;
         }
 
-        .copy-notice {
-            font-size: 0.7rem;
-            color: #999;
+        .copy-status {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             margin-top: 8px;
-            text-align: right;
-            font-weight: 600;
+            padding: 0 5px;
         }
 
-        footer { margin-top: 50px; font-size: 11px; color: #aaa; line-height: 1.8; }
+        .notice-text { font-size: 11px; color: #bbb; font-weight: 600; }
+        .copied-label { 
+            font-size: 11px; 
+            color: var(--main); 
+            font-weight: 800; 
+            opacity: 0; 
+            transition: opacity 0.2s;
+        }
+        .copied-label.show { opacity: 1; }
+
+        footer { margin-top: 60px; font-size: 11px; color: #aaa; line-height: 1.8; }
         .footer-btns { margin-top: 30px; }
         .kofi-btn {
             display: inline-block; background: var(--main); color: #fff;
@@ -137,7 +148,7 @@
             background: #fff; width: 85%; max-width: 320px; padding: 30px;
             border-radius: var(--radius); text-align: left; position: relative;
         }
-        .close-x { position: absolute; top: 15px; right: 20px; font-size: 20px; color: #ccc; cursor: pointer; }
+        .close-x { position: absolute; top: 15px; right: 20px; font-size: 24px; color: #ccc; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -146,7 +157,7 @@
     <h1>Web Tables</h1>
     <p class="subtitle">Convert CSV to Markdown or JSON instantly.</p>
 
-    <textarea class="input-area" id="csvInput" placeholder="Paste CSV / Excel data here..." oninput="processData()"></textarea>
+    <textarea class="input-area" id="csvInput" placeholder="Paste CSV or Excel data here..." oninput="processData()"></textarea>
 
     <div class="toggle-container">
         <button class="toggle-btn active" id="btnMd" onclick="setMode('md')">Markdown</button>
@@ -154,8 +165,11 @@
     </div>
 
     <div class="output-container">
-        <textarea class="output-area" id="outputArea" readonly placeholder="Output will appear here..." onclick="copyOutput()"></textarea>
-        <div class="copy-notice" id="copyNotice">Tap to copy</div>
+        <textarea class="output-area" id="outputArea" readonly placeholder="Output will appear here..." onclick="copyToClipboard()"></textarea>
+        <div class="copy-status">
+            <span class="notice-text">Tap to copy</span>
+            <span class="copied-label" id="copyLabel">Copied!</span>
+        </div>
     </div>
 
     <div class="footer-btns">
@@ -181,55 +195,58 @@
 
 <script>
     let currentMode = 'md';
-    let lastParsedData = [];
+    let cachedData = [];
 
     function setMode(mode) {
         currentMode = mode;
         document.getElementById('btnMd').classList.toggle('active', mode === 'md');
         document.getElementById('btnJson').classList.toggle('active', mode === 'json');
-        displayOutput();
+        renderOutput();
     }
 
     function processData() {
         const input = document.getElementById('csvInput').value.trim();
         if (!input) {
-            lastParsedData = [];
-            displayOutput();
+            cachedData = [];
+            renderOutput();
             return;
         }
 
-        // CSV Parsing logic (Handle Commas, Tabs, Semicolons)
         const lines = input.split(/\r?\n/);
         const delimiter = detectDelimiter(lines[0]);
         
-        lastParsedData = lines.map(line => {
-            return line.split(delimiter).map(cell => cell.replace(/^["']|["']$/g, '').trim());
+        cachedData = lines.map(line => {
+            // Precise parsing: split by delimiter and remove surrounding quotes and extra spaces
+            return line.split(delimiter).map(cell => {
+                let clean = cell.trim();
+                return clean.replace(/^["']|["']$/g, '').trim();
+            });
         });
 
-        displayOutput();
+        renderOutput();
     }
 
-    function detectDelimiter(firstLine) {
-        if (firstLine.includes('\t')) return '\t';
-        if (firstLine.includes(';')) return ';';
+    function detectDelimiter(line) {
+        if (line.includes('\t')) return '\t';
+        if (line.includes(';')) return ';';
         return ',';
     }
 
-    function displayOutput() {
+    function renderOutput() {
         const outputArea = document.getElementById('outputArea');
-        if (lastParsedData.length === 0) {
+        if (cachedData.length === 0) {
             outputArea.value = '';
             return;
         }
 
         if (currentMode === 'md') {
-            outputArea.value = generateMarkdown(lastParsedData);
+            outputArea.value = toMarkdown(cachedData);
         } else {
-            outputArea.value = generateJSON(lastParsedData);
+            outputArea.value = toJson(cachedData);
         }
     }
 
-    function generateMarkdown(data) {
+    function toMarkdown(data) {
         if (data.length === 0) return '';
         const headers = data[0];
         const rows = data.slice(1);
@@ -237,41 +254,44 @@
         let md = `| ${headers.join(' | ')} |\n`;
         md += `| ${headers.map(() => '---').join(' | ')} |\n`;
         rows.forEach(row => {
+            if (row.length === 1 && row[0] === "") return;
             md += `| ${row.join(' | ')} |\n`;
         });
         return md;
     }
 
-    function generateJSON(data) {
-        if (data.length < 2) return JSON.stringify(data, null, 2);
+    function toJson(data) {
+        if (data.length === 0) return '[]';
+        if (data.length === 1) return JSON.stringify(data[0], null, 2);
+        
         const headers = data[0];
         const rows = data.slice(1);
         
-        const json = rows.map(row => {
+        const jsonResult = rows.filter(row => row.some(cell => cell !== "")).map(row => {
             let obj = {};
             headers.forEach((header, i) => {
                 obj[header || `key${i}`] = row[i] || "";
             });
             return obj;
         });
-        return JSON.stringify(json, null, 2);
+        return JSON.stringify(jsonResult, null, 2);
     }
 
-    function copyOutput() {
+    function copyToClipboard() {
         const area = document.getElementById('outputArea');
         if (!area.value) return;
+
         area.select();
-        area.setSelectionRange(0, 99999);
-        document.execCommand("copy");
-        
-        const notice = document.getElementById('copyNotice');
-        const original = notice.innerText;
-        notice.innerText = "Copied!";
-        notice.style.color = "#333";
-        setTimeout(() => {
-            notice.innerText = original;
-            notice.style.color = "#999";
-        }, 1500);
+        area.setSelectionRange(0, 99999); // For mobile
+
+        try {
+            document.execCommand('copy');
+            const label = document.getElementById('copyLabel');
+            label.classList.add('show');
+            setTimeout(() => label.classList.remove('show'), 1500);
+        } catch (err) {
+            console.error('Copy failed', err);
+        }
     }
 
     function showModal() { document.getElementById('modal').style.display = 'flex'; }
